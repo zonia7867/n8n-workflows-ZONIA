@@ -1,0 +1,599 @@
+{
+  "name": "post generator",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression"
+            }
+          ]
+        }
+      },
+      "id": "ece3530c-d999-42cf-8e6d-ba1b7f2774c6",
+      "name": "Schedule Trigger1",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "174aai-G0OnTIqxdNSvmNcJloxMLIXE3zX9Hc2lUNUz4",
+          "mode": "list",
+          "cachedResultName": "social media content",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/174aai-G0OnTIqxdNSvmNcJloxMLIXE3zX9Hc2lUNUz4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/174aai-G0OnTIqxdNSvmNcJloxMLIXE3zX9Hc2lUNUz4/edit#gid=0"
+        },
+        "options": {}
+      },
+      "id": "c5bbc034-6156-4c89-9311-d5d6b8132fe2",
+      "name": "Get row(s) in sheet1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        224,
+        192
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R53uharVj3hVoLt0",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(item => item.json);\nconst pastEmbeddings = rows\n  .filter(r => r.Embedding)\n  .map(r => ({\n    idea: r.idea,\n    vector: JSON.parse(r.Embedding)\n  }));\n\nconst recentIdeas = rows.slice(-30).map(r => r.idea).join(\", \");\n\nreturn [{\n  json: {\n    pastEmbeddings,\n    recentIdeas\n  }\n}];"
+      },
+      "id": "895cb0c0-51af-421e-a3bc-e52e9aec846f",
+      "name": "Code in JavaScript1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Here are some recent topics already covered: {{ $json.recentIdeas }}\n\nGenerate ONE new, specific, non-generic social media content idea related to technology, career growth, or productivity. It must be meaningfully different in substance from typical recycled topics, not just reworded.\n\nThe idea MUST be written in English.\n\nReturn ONLY the idea as plain text in English, nothing else."
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "temperature": 0.9
+        }
+      },
+      "id": "e31e05e1-c734-46a2-98a1-a78a664c772f",
+      "name": "Message a model2",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        192
+      ],
+      "retryOnFail": true,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "nJiXzsORJ29uNdKy",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=AQ.Ab8RN6KIymLPSsiP89snijlPNz_yMMxfqdNLcVwmGZIRMH2NZg",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ content: { parts: [{ text: $('Message a model2').item.json.content.parts[0].text }] } }) }}",
+        "options": {}
+      },
+      "id": "704fb2ac-de36-43d8-b3c9-ef0dd5ccebe6",
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        944,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const newVector = $input.first().json.embedding.values;\nconst pastEmbeddings = $('Code in JavaScript1').first().json.pastEmbeddings; \n\nfunction cosineSimilarity(a, b) {\n  let dot = 0, magA = 0, magB = 0;\n  for (let i = 0; i < a.length; i++) {\n    dot += a[i] * b[i];\n    magA += a[i] * a[i];\n    magB += b[i] * b[i];\n  }\n  return dot / (Math.sqrt(magA) * Math.sqrt(magB));\n}\n\nlet maxSimilarity = 0;\nfor (const entry of pastEmbeddings) {\n  const sim = cosineSimilarity(newVector, entry.vector);\n  if (sim > maxSimilarity) maxSimilarity = sim;\n}\n\nconst isDuplicate = maxSimilarity > 0.85; \n\nreturn [{\n  json: {\n    idea: $('Message a model2').first().json.content.parts[0].text, \n    embedding: JSON.stringify(newVector),\n    isDuplicate,\n    maxSimilarity\n  }\n}];"
+      },
+      "id": "a18ef2ee-e653-415a-bf84-f8fd1003e6cd",
+      "name": "Code in JavaScript2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "7bb89d5c-434c-4045-8003-e328481fcab6",
+              "leftValue": "={{ $json.isDuplicate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "83f02231-e9d3-4b50-848c-72103e274d16",
+      "name": "If",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1344,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tavily.com/search",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"api_key\": \"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\",\n  \"query\": \"{{ $json.idea }}\",\n  \"search_depth\": \"advanced\",\n  \"max_results\": 5,\n  \"include_answer\": true\n}",
+        "options": {}
+      },
+      "id": "0527285c-0215-425e-8dcf-5e784760e678",
+      "name": "HTTP Request1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1568,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are a careful content writer. Always write your entire response in English, regardless of the language of the research or the idea provided. Only use facts from the research provided. Do not invent statistics, names, or claims not present in the research."
+            },
+            {
+              "content": "=Idea: {{ $('If').item.json.idea }}\n\nResearch: {{ $json.answer }}\n\nWrite everything in English only.\n\nReturn ONLY valid JSON (all values in English):\n{\n  \"text\": \"a well-written social media post in English combining the idea and research, ready to publish\",\n  \"name\": \"a short 3-5 word title in English for this post\"\n}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "087d5692-c6fa-443c-b780-3dea53b6df07",
+      "name": "Message a model3",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        1792,
+        96
+      ],
+      "retryOnFail": true,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "nJiXzsORJ29uNdKy",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.content.parts[0].text;\nconst cleaned = raw.replace(/```json|```/g, '').trim();\nconst parsed = JSON.parse(cleaned);\n\nreturn [{\n  json: {\n    name: parsed.name,\n    idea: $('If').item.json.idea,\n    text: parsed.text,\n    embedding: $('If').item.json.embedding,\n    status: \"Review\"\n  }\n}];"
+      },
+      "id": "bc7877f0-943d-4329-9d65-910b13e158eb",
+      "name": "Code in JavaScript3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ \"https://image.pollinations.ai/prompt/\" + encodeURIComponent(\"Abstract, minimalist, professional conceptual illustration inspired by the theme: \" + $('If').item.json.idea + \". Use only shapes, colors, icons, and imagery. Absolutely NO text, NO words, NO letters, NO numbers, NO typography, NO captions, NO labels, NO signage, NO writing, NO watermark of any kind. A purely visual, text-free image.\") + \"?nologo=true&enhance=false\" }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "3dd7d218-f20b-40bf-8dcb-0823f5e918df",
+      "name": "HTTP Request2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2240,
+        96
+      ],
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "name": "={{ $('Code in JavaScript3').item.json.name }}.png",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1SXTmWW8AgiPUAxfS7C63hh0IpOzjO_Qb",
+          "mode": "list",
+          "cachedResultName": "post generator",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1SXTmWW8AgiPUAxfS7C63hh0IpOzjO_Qb"
+        },
+        "options": {
+          "propertiesUi": {
+            "propertyValues": []
+          }
+        }
+      },
+      "id": "4b3d4759-5c87-493c-a261-a578168c4743",
+      "name": "Upload file",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2464,
+        0
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "fKlsxXsFpaZlEw7w",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "174aai-G0OnTIqxdNSvmNcJloxMLIXE3zX9Hc2lUNUz4",
+          "mode": "list",
+          "cachedResultName": "social media content",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/174aai-G0OnTIqxdNSvmNcJloxMLIXE3zX9Hc2lUNUz4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/174aai-G0OnTIqxdNSvmNcJloxMLIXE3zX9Hc2lUNUz4/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $('Code in JavaScript3').item.json.name }}",
+            "idea": "={{ $('Code in JavaScript3').item.json.idea }}",
+            "text": "={{ $('Code in JavaScript3').item.json.text }}",
+            "Embedding": "={{ $('Code in JavaScript3').item.json.embedding }}",
+            "image": "={{ $('Upload file').item.json.webViewLink }}",
+            "status": "Review"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "idea",
+              "displayName": "idea",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "text",
+              "displayName": "text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "image",
+              "displayName": "image",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Embedding",
+              "displayName": "Embedding",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "dc4c6883-964d-4224-aba8-9fe32b8382fc",
+      "name": "Append row in sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2688,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "R53uharVj3hVoLt0",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "person": "uVDnrk-Ndz",
+        "text": "={{ $('Code in JavaScript3').item.json.text }}",
+        "shareMediaCategory": "IMAGE",
+        "additionalFields": {
+          "title": "={{ $('Code in JavaScript3').item.json.name }}",
+          "visibility": "PUBLIC"
+        }
+      },
+      "id": "99defc73-9f60-46dc-85b7-16bcbef8109e",
+      "name": "Post to LinkedIn",
+      "type": "n8n-nodes-base.linkedIn",
+      "typeVersion": 1,
+      "position": [
+        2464,
+        192
+      ],
+      "credentials": {
+        "linkedInOAuth2Api": {
+          "id": "gOmMIgSJAvuyCQLt",
+          "name": "LinkedIn account 3"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "0569f439-db47-4447-82b7-1e2e799fecbe",
+      "name": "No Operation, do nothing",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        288
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger1": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Message a model2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model2": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Message a model3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model3": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request2": {
+      "main": [
+        [
+          {
+            "node": "Upload file",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Post to LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload file": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "690f8a50-267e-4951-a268-8236d5c1ef01",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1e3c659a532b71bf98f1f971aa31f4b71b46128ae5c3cfa25bab1e7fc9ae5775"
+  },
+  "nodeGroups": [],
+  "id": "kRWjglcSFu2enugd",
+  "tags": []
+}
